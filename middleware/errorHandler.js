@@ -1,12 +1,13 @@
 const { logger } = require('../utils/logger');
+const config = require('../config');
 
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log error
+  // Log error (include stack only in non-production)
   logger.error(`Error: ${err.message}`, {
-    stack: err.stack,
+    stack: config.env === 'production' ? undefined : err.stack,
     url: req.url,
     method: req.method,
     ip: req.ip,
@@ -43,10 +44,19 @@ const errorHandler = (err, req, res, next) => {
     error = { message, statusCode: 401 };
   }
 
-  res.status(error.statusCode || 500).json({
+  const response = {
     success: false,
     error: error.message || 'Server Error'
-  });
+  };
+
+  // In non-production, include a little more debug info
+  if (config.env !== 'production') {
+    response.debug = {
+      stack: err.stack
+    };
+  }
+
+  res.status(error.statusCode || 500).json(response);
 };
 
 module.exports = { errorHandler };

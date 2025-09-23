@@ -158,6 +158,17 @@ RATE_LIMIT_MAX_REQUESTS=100
 CORS_ORIGIN=http://localhost:3000
 ```
 
+### Upstash Redis (optional)
+
+If you use Upstash for distributed rate limiting or caching, prefer providing the Redis TLS URI in `REDIS_URL` (recommended). Example:
+
+```bash
+REDIS_URL=redis://default:password@present-toad-8367.upstash.io:6379
+```
+
+Upstash also exposes a REST API (HTTP) with a REST URL and token. The current rate-limiter implementation expects a Redis connection string (the Redis/TLS URI). If you only have the REST URL & token and cannot provide the Redis URI, tell me and I will switch the limiter to a REST-based integration instead.
+
+
 ## Default Login Credentials
 
 After running the seed script:

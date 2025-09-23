@@ -55,6 +55,32 @@ require('crypto').randomBytes(64).toString('hex')
 - [ ] Create database user with read/write permissions
 - [ ] Update connection string in environment variables
 
+#### MongoDB Production Recommendations
+- Use TLS/SSL (Atlas enforces TLS by default).
+- Create a least-privilege database user (readWrite on your DB only).
+- Configure IP access list to restrict connections from Render and your admin IPs.
+- Enable backup and point-in-time recovery if available.
+- Use connection string SRV format (provided by Atlas) and set a sensible `maxPoolSize`.
+- Run the `scripts/createIndexes.js` script after initial deployment to create indexes for common queries:
+
+```bash
+node scripts/createIndexes.js
+```
+
+If you prefer to run index creation manually, run the commands in the Mongo shell or Atlas UI. Monitor index build times and avoid building large indexes during peak traffic.
+
+### Upstash Redis (optional) - for rate limiting and caching
+
+- Upstash offers two connection methods: a Redis URI (recommended for low-latency) and a REST API (HTTP).
+- For the rate limiter we use a Redis connection. In Upstash, go to your database and copy the `Redis` connection string (looks like `redis://default:<password>@<host>:6379`).
+- Set the value in Render as `REDIS_URL` (example):
+
+```bash
+REDIS_URL=redis://default:password@present-toad-8367.upstash.io:6379
+```
+
+- If you only have the Upstash REST URL & token and can't get the Redis URI, we can integrate the Upstash REST API (requires a different package). Let me know and I can wire the REST-based limiter instead.
+
 ### 🔧 Render Service Configuration
 
 #### Build Command

@@ -6,8 +6,6 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const mongoSanitize = require('express-mongo-sanitize');
-require('dotenv').config();
-
 // Import routes
 const authRoutes = require('./routes/auth');
 const movieRoutes = require('./routes/movies');
@@ -23,8 +21,23 @@ const { startScheduledJobs } = require('./utils/scheduler');
 
 const app = express();
 
-// Trust proxy for accurate IP addresses behind reverse proxy
-app.set('trust proxy', 1);
+const config = require('./config');
+
+// Trust proxy for accurate IP addresses behind reverse proxy (only when behind a proxy)
+if (config.env === 'production') {
+  app.set('trust proxy', 1);
+}
+
+// Redirect HTTP to HTTPS in production (when behind a proxy that sets x-forwarded-proto)
+if (config.env === 'production') {
+  app.use((req, res, next) => {
+    const proto = req.get('x-forwarded-proto');
+    if (proto && proto.indexOf('https') === -1) {
+      return res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+    }
+    next();
+  });
+}
 
 // Enhanced security middleware
 app.use(helmet({
@@ -48,6 +61,14 @@ app.use(helmet({
   }
 }));
 
+// Additional security headers
+app.use((req, res, next) => {
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  next();
+});
+
 app.use(compression());
 
 // Prevent NoSQL injection attacks
@@ -59,16 +80,13 @@ app.use(mongoSanitize({
 // CORS configuration with security
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'];
-    
-    // Allow requests with no origin (mobile apps, etc.)
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    if (config.corsOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
     }
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   optionsSuccessStatus: 200,
@@ -80,11 +98,11 @@ app.use(cors(corsOptions));
 
 // Enhanced rate limiting with different tiers
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  windowMs: config.rateLimitWindowMs || 15 * 60 * 1000, // 15 minutes
+  max: config.rateLimitMaxRequests || 100,
   message: {
     error: 'Too many requests from this IP, please try again later.',
-    retryAfter: Math.round((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000) / 1000)
+    retryAfter: Math.round((config.rateLimitWindowMs || 15 * 60 * 1000) / 1000)
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -135,25 +153,30 @@ app.use(morgan('combined', {
 }));
 
 // Database connection with security options
+// Mongoose connection options: keep minimal, avoid deprecated flags
 const mongooseOptions = {
   maxPoolSize: 10, // Maintain up to 10 socket connections
   serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
   socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
   bufferCommands: false, // Disable mongoose buffering
+  // Enforce schema validation on updates (set via mongoose.set below)
 };
 
-mongoose.connect(process.env.MONGODB_URI, mongooseOptions)
-.then(() => {
-  logger.info('Connected to MongoDB');
-  // Start scheduled jobs after DB connection
-  if (process.env.NODE_ENV === 'production') {
-    startScheduledJobs();
-  }
-})
-.catch((error) => {
-  logger.error('MongoDB connection error:', error);
-  process.exit(1);
-});
+// Set mongoose runtime options that are not MongoClient options
+mongoose.set('strictQuery', true);
+
+mongoose.connect(config.mongodbUri, mongooseOptions)
+  .then(() => {
+    logger.info('Connected to MongoDB');
+    // Start scheduled jobs after DB connection (only in production)
+    if (config.env === 'production') {
+      startScheduledJobs();
+    }
+  })
+  .catch((error) => {
+    logger.error('MongoDB connection error:', error);
+    process.exit(1);
+  });
 
 // Handle MongoDB connection errors after initial connection
 mongoose.connection.on('error', (error) => {
@@ -187,7 +210,7 @@ app.get('/api/health', (req, res) => {
   };
 
   // Don't expose sensitive info in production
-  if (process.env.NODE_ENV === 'production') {
+  if (config.env === 'production') {
     delete healthData.memory;
     delete healthData.environment;
   }
@@ -215,12 +238,13 @@ app.use('*', (req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const PORT = config.port || 5000;
 
+// In production, prefer using the environment provided port
 app.listen(PORT, () => {
   logger.info(`Server running on port ${PORT}`);
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Environment: ${process.env.NODE_ENV}`);
+  console.log(`📱 Environment: ${config.env}`);
 });
 
 module.exports = app;
