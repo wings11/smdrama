@@ -1,47 +1,24 @@
-const rateLimit = require('express-rate-limit');
-const Redis = require('ioredis');
-const config = require('../config');
+/*
+  Rate limiting has been temporarily disabled per admin request.
+  This file now exports no-op middlewares so existing app.use(...) calls
+  that reference strictRateLimit/moderateRateLimit/relaxedRateLimit will
+  continue to work without throttling traffic.
 
-let redisClient = null;
-let RedisStore = null;
-let redisStoreAvailable = false;
+  Re-enable rate limiting by restoring the previous implementation that
+  uses express-rate-limit (and optionally Redis) and replacing these
+  no-op functions.
+*/
 
-if (config.redisUrl) {
-  // config.redisUrl should be a redis:// or rediss:// URI (Upstash provides both options)
-  redisClient = new Redis(config.redisUrl, { connectTimeout: 5000 });
-  redisClient.on('error', (err) => console.warn('Redis error for rate limiter:', err.message));
+console.warn('Rate limiting disabled: strict/moderate/relaxed are now no-op middlewares.');
 
-  try {
-    // Load rate-limit-redis only if available. This package is optional.
-    // eslint-disable-next-line global-require
-    RedisStore = require('rate-limit-redis');
-    redisStoreAvailable = true;
-  } catch (err) {
-    console.warn('rate-limit-redis not installed; falling back to in-memory rate limiting. To enable Redis-backed limits, install rate-limit-redis.');
-    redisStoreAvailable = false;
-  }
-}
-
-const createRateLimit = (windowMs, max, message) => {
-  const base = {
-    windowMs,
-    max,
-    message: { error: message },
-    standardHeaders: true,
-    legacyHeaders: false,
-  };
-
-  if (redisClient && redisStoreAvailable && RedisStore) {
-    return rateLimit(Object.assign({}, base, { store: new RedisStore({ sendCommand: (...args) => redisClient.call(...args) }) }));
-  }
-
-  // Fallback: single-instance in-memory limiter
-  return rateLimit(base);
+const noop = (req, res, next) => {
+  // intentionally do nothing (no throttling)
+  next();
 };
 
-const strictRateLimit = createRateLimit(15 * 60 * 1000, 10, 'Too many requests from this IP, please try again later.');
-const moderateRateLimit = createRateLimit(15 * 60 * 1000, 50, 'Too many requests from this IP, please try again later.');
-const relaxedRateLimit = createRateLimit(15 * 60 * 1000, 200, 'Too many requests from this IP, please try again later.');
+const strictRateLimit = noop;
+const moderateRateLimit = noop;
+const relaxedRateLimit = noop;
 
 module.exports = {
   strictRateLimit,

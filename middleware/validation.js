@@ -90,10 +90,18 @@ const validateMovie = [
     .isInt({ min: 1 })
     .withMessage('Seasons must be at least 1'),
   
+  // Episodes used to be a Number on Movie model; for admin we now accept
+  // either a numeric total (legacy) or an array of episode objects when
+  // creating/updating series. Accept both shapes to avoid validation failures
+  // from the admin UI which sends an array of episodes.
   body('episodes')
     .optional()
-    .isInt({ min: 1 })
-    .withMessage('Episodes must be at least 1'),
+    .custom((value) => {
+      if (value === undefined || value === null) return true
+      if (Array.isArray(value)) return true
+      if (Number.isInteger(value) && value >= 1) return true
+      throw new Error('Episodes must be an integer or an array of episodes')
+    }),
   
   body('genre')
     .optional()

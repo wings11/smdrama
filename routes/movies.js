@@ -67,15 +67,61 @@ router.get('/', async (req, res) => {
       sort.score = { $meta: 'textScore' };
     }
 
-    const [movies, total] = await Promise.all([
-      Movie.find(query)
-        .select('title originalTitle type year genre language description thumbnailUrl posterUrl trailerUrl backdropUrl rating duration seasons episodes clickCount isFeatured slug tags createdAt')
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Movie.countDocuments(query)
-    ]);
+    let movies = [];
+    let total = 0;
+
+    // Special sort: allow sorting by the last episode upload time for series
+    if (sortBy === 'lastEpisodeAt') {
+      // Aggregation: lookup the most recent episode per movie, use its createdAt (fall back to movie.createdAt)
+      const pipeline = [
+        { $match: query },
+        {
+          $lookup: {
+            from: 'episodes',
+            let: { movieId: '$_id' },
+            pipeline: [
+              { $match: { $expr: { $and: [ { $eq: ['$movieId', '$$movieId'] }, { $eq: ['$isPublished', true] } ] } } },
+              { $sort: { createdAt: -1 } },
+              { $limit: 1 },
+              { $project: { createdAt: 1 } }
+            ],
+            as: 'lastEpisode'
+          }
+        },
+        {
+          $addFields: {
+            lastEpisodeAt: { $ifNull: [ { $arrayElemAt: ['$lastEpisode.createdAt', 0] }, '$createdAt' ] }
+          }
+        },
+        { $sort: { lastEpisodeAt: sortOrder } },
+        { $project: { title: 1, originalTitle:1, type:1, year:1, genre:1, language:1, description:1, thumbnailUrl:1, posterUrl:1, trailerUrl:1, backdropUrl:1, rating:1, duration:1, seasons:1, episodes:1, clickCount:1, isFeatured:1, slug:1, tags:1, createdAt:1 } },
+        { $skip: skip },
+        { $limit: limit }
+      ];
+
+      const countPipeline = [ { $match: query }, { $count: 'count' } ];
+
+      const [docs, countResult] = await Promise.all([
+        Movie.aggregate(pipeline),
+        Movie.aggregate(countPipeline)
+      ]);
+
+      movies = docs;
+      total = (countResult[0] && countResult[0].count) ? countResult[0].count : 0;
+    } else {
+      const [foundMovies, foundTotal] = await Promise.all([
+        Movie.find(query)
+          .select('title originalTitle type year genre language description thumbnailUrl posterUrl trailerUrl backdropUrl rating duration seasons episodes clickCount isFeatured slug tags createdAt')
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Movie.countDocuments(query)
+      ]);
+
+      movies = foundMovies;
+      total = foundTotal;
+    }
 
     const result = {
       success: true,

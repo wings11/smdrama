@@ -1,9 +1,10 @@
 const express = require('express');
 const Movie = require('../models/Movie');
+const Episode = require('../models/Episode');
 const User = require('../models/User');
 const { auth, adminAuth } = require('../middleware/auth');
 const { validateMovie, validateUser, checkValidation } = require('../middleware/validation');
-const { deleteCache } = require('../utils/cache');
+const { deleteCache, getCacheKey } = require('../utils/cache');
 const { logger } = require('../utils/logger');
 
 const router = express.Router();
@@ -134,29 +135,78 @@ router.post('/movies/test', async (req, res) => {
 router.post('/movies', async (req, res) => {
   try {
     console.log('Received movie data:', req.body); // Debug log
+    console.log('Request content-type:', req.get('content-type'));
+    console.log('Is JSON?:', req.is('application/json'));
+    console.log('Origin header:', req.get('origin'));
     console.log('Data types:', Object.entries(req.body).map(([key, value]) => [key, typeof value]));
     
+    // Extract episodes payload (do not pass into Movie schema)
+    const episodesPayload = Array.isArray(req.body.episodes) ? req.body.episodes : [];
+
     const movieData = {
       ...req.body,
       uploadedBy: req.user._id
     };
+    // remove episodes so Movie schema doesn't try to cast it to Number
+    delete movieData.episodes;
 
     console.log('Final movie data:', movieData);
 
     const movie = new Movie(movieData);
     await movie.save();
 
-    // Clear cache
-    await deleteCache('movies:*');
-    await deleteCache('featured_movies:*');
-    await deleteCache('popular_movies:*');
+    // If episodes provided in payload, create/upsert them
+    if (episodesPayload.length > 0) {
+      logger.info('Admin create: processing episodes payload', { count: episodesPayload.length, movieId: movie._id.toString() });
+      for (const epData of episodesPayload) {
+        try {
+          const episodeNumber = epData.episodeNumber ? Number(epData.episodeNumber) : null;
+          const watchUrl = epData.watchUrl ? String(epData.watchUrl).trim() : '';
+          if (!episodeNumber || !watchUrl) {
+            // minimal required fields missing; skip
+            console.warn('Skipping episode creation - missing episodeNumber or watchUrl', epData);
+            continue;
+          }
+
+          // Upsert by movieId + season + episodeNumber
+          const season = epData.season ? Number(epData.season) : 1;
+          await Episode.findOneAndUpdate(
+            { movieId: movie._id, season, episodeNumber },
+            { $set: { watchUrl, isPublished: epData.isPublished !== false, title: epData.title || undefined, thumbnailUrl: epData.thumbnailUrl || undefined, duration: epData.duration ? Number(epData.duration) : undefined } },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+          );
+        } catch (err) {
+          console.error('Create/upsert episode error in admin create:', err);
+        }
+      }
+      // Clear episode caches for this movie
+      try {
+        const pattern = getCacheKey('episodes', { movieId: movie._id }) + '*';
+        await deleteCache(pattern);
+      } catch (e) {
+        console.warn('Failed to clear episode cache for movie after create', e.message || e);
+      }
+    }
+    // Fetch updated episodes to include in response so frontend can refresh
+    let updatedEpisodes = [];
+    try {
+      updatedEpisodes = await Episode.find({ movieId: movie._id }).sort({ season: 1, episodeNumber: 1 }).lean();
+    } catch (err) {
+      console.warn('Failed to fetch updated episodes after admin create', err.message || err);
+    }
+  // Clear cache
+  await deleteCache('movies:*');
+  await deleteCache('featured_movies:*');
+  await deleteCache('popular_movies:*');
+  try { const pattern = getCacheKey('episodes', { movieId: movie._id }) + '*'; await deleteCache(pattern); } catch (e) { /* ignore */ }
 
     logger.info(`Movie created: ${movie.title} by ${req.user.email}`);
 
     res.status(201).json({
       success: true,
       message: 'Movie created successfully',
-      data: movie
+      data: movie,
+      episodes: updatedEpisodes
     });
   } catch (error) {
     console.error('Detailed error:', error);
@@ -196,21 +246,84 @@ router.put('/movies/:id', validateMovie, checkValidation, async (req, res) => {
       return res.status(404).json({ error: 'Movie not found' });
     }
 
+  console.log('Request content-type:', req.get('content-type'));
+  console.log('Is JSON?:', req.is('application/json'));
+  console.log('Origin header:', req.get('origin'));
+  // Extract episodes payload and remove from body to avoid casting errors
+    const episodesPayload = Array.isArray(req.body.episodes) ? req.body.episodes : [];
+    if (episodesPayload.length > 0) delete req.body.episodes;
+
     // Update movie
     Object.assign(movie, req.body);
     await movie.save();
 
-    // Clear cache
-    await deleteCache('movies:*');
-    await deleteCache('featured_movies:*');
-    await deleteCache('popular_movies:*');
+      // If episodes provided in payload, upsert them
+      if (episodesPayload.length > 0) {
+        logger.info('Admin update: processing episodes payload', { count: episodesPayload.length, movieId: movie._id.toString() });
+        for (const epData of episodesPayload) {
+          try {
+            const episodeNumber = epData.episodeNumber ? Number(epData.episodeNumber) : null;
+            const watchUrl = epData.watchUrl ? String(epData.watchUrl).trim() : '';
+            if (!episodeNumber || !watchUrl) {
+              console.warn('Skipping episode upsert - missing episodeNumber or watchUrl', epData);
+              continue;
+            }
+
+            const season = epData.season ? Number(epData.season) : 1;
+            if (epData._id && !String(epData._id).startsWith('tmp-')) {
+              // update by id if belongs to this movie
+              const existing = await Episode.findById(epData._id);
+              if (existing && String(existing.movieId) === String(movie._id)) {
+                existing.episodeNumber = episodeNumber;
+                existing.season = season;
+                existing.watchUrl = watchUrl;
+                existing.isPublished = epData.isPublished !== undefined ? !!epData.isPublished : existing.isPublished;
+                existing.title = epData.title || existing.title;
+                existing.thumbnailUrl = epData.thumbnailUrl || existing.thumbnailUrl;
+                existing.duration = epData.duration ? Number(epData.duration) : existing.duration;
+                await existing.save();
+                continue;
+              }
+            }
+
+            // upsert by movieId+season+episodeNumber
+            await Episode.findOneAndUpdate(
+              { movieId: movie._id, season, episodeNumber },
+              { $set: { watchUrl, isPublished: epData.isPublished !== false, title: epData.title || undefined, thumbnailUrl: epData.thumbnailUrl || undefined, duration: epData.duration ? Number(epData.duration) : undefined } },
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+          } catch (err) {
+            console.error('Upsert episode error in admin update:', err);
+          }
+        }
+        // Clear episode caches for this movie
+        try {
+          const pattern = getCacheKey('episodes', { movieId: movie._id }) + '*';
+          await deleteCache(pattern);
+        } catch (e) {
+          console.warn('Failed to clear episode cache for movie during update', e.message || e);
+        }
+      }
+      // Fetch updated episodes to include in response so frontend can refresh
+      let updatedEpisodesOnUpdate = [];
+      try {
+        updatedEpisodesOnUpdate = await Episode.find({ movieId: movie._id }).sort({ season: 1, episodeNumber: 1 }).lean();
+      } catch (err) {
+        console.warn('Failed to fetch updated episodes after admin update', err.message || err);
+      }
+  // Clear cache
+  await deleteCache('movies:*');
+  await deleteCache('featured_movies:*');
+  await deleteCache('popular_movies:*');
+  try { const pattern = getCacheKey('episodes', { movieId: movie._id }) + '*'; await deleteCache(pattern); } catch (e) { /* ignore */ }
 
     logger.info(`Movie updated: ${movie.title} by ${req.user.email}`);
 
     res.json({
       success: true,
       message: 'Movie updated successfully',
-      data: movie
+      data: movie,
+      episodes: updatedEpisodesOnUpdate
     });
   } catch (error) {
     logger.error('Update movie error:', error);

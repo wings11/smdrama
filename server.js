@@ -12,6 +12,7 @@ const movieRoutes = require('./routes/movies');
 const adminRoutes = require('./routes/admin');
 const clientRoutes = require('./routes/client');
 const analyticsRoutes = require('./routes/analytics');
+const episodesRoutes = require('./routes/episodes');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -51,7 +52,7 @@ app.use(helmet({
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
+        frameSrc: ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
     },
   },
   hsts: {
@@ -194,6 +195,9 @@ app.use('/api/movies', relaxedRateLimit, movieRoutes);
 app.use('/api/admin', moderateRateLimit, adminRoutes);
 app.use('/api/client', moderateRateLimit, clientRoutes);
 app.use('/api/analytics', moderateRateLimit, analyticsRoutes);
+app.use('/api/episodes', relaxedRateLimit, episodesRoutes);
+// Also expose episodes routes at /api so endpoints like /api/movies/:movieId/episodes work
+app.use('/api', relaxedRateLimit, episodesRoutes);
 
 // Health check with security info
 app.get('/api/health', (req, res) => {
