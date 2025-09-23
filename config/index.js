@@ -7,7 +7,7 @@ const schema = Joi.object({
   MONGODB_URI: Joi.string().uri().required(),
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_EXPIRES_IN: Joi.string().default('30d'),
-  CORS_ORIGIN: Joi.string().default('http://localhost:3000'),
+  CORS_ORIGIN: Joi.string().default('https://www.smdrama.org'),
   RATE_LIMIT_WINDOW_MS: Joi.number().default(15 * 60 * 1000),
   RATE_LIMIT_MAX_REQUESTS: Joi.number().default(100),
   REDIS_URL: Joi.string().uri().allow('', null),
@@ -24,7 +24,7 @@ if (error) {
 }
 
 // Coerce origin into array
-const corsOrigins = env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',').map(s => s.trim()) : ['http://localhost:3000'];
+const corsOrigins = env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',').map(s => s.trim()) : ['https://www.smdrama.org'];
 
 // If a Redis URI isn't provided but Upstash REST credentials are, warn the user.
 if ((!env.REDIS_URL || env.REDIS_URL === '') && env.UPSTASH_REDIS_REST_URL) {
