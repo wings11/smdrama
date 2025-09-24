@@ -172,7 +172,7 @@ router.post('/movies', async (req, res) => {
           const season = epData.season ? Number(epData.season) : 1;
           await Episode.findOneAndUpdate(
             { movieId: movie._id, season, episodeNumber },
-            { $set: { watchUrl, isPublished: epData.isPublished !== false, title: epData.title || undefined, thumbnailUrl: epData.thumbnailUrl || undefined, duration: epData.duration ? Number(epData.duration) : undefined } },
+            { $set: { watchUrl, isPublished: epData.isPublished !== false, title: epData.title || undefined, thumbnailUrl: epData.thumbnailUrl || undefined, duration: epData.duration ? Number(epData.duration) : undefined, downloads: epData.downloads || undefined } },
             { upsert: true, new: true, setDefaultsOnInsert: true }
           );
         } catch (err) {
@@ -250,8 +250,11 @@ router.put('/movies/:id', validateMovie, checkValidation, async (req, res) => {
   console.log('Is JSON?:', req.is('application/json'));
   console.log('Origin header:', req.get('origin'));
   // Extract episodes payload and remove from body to avoid casting errors
-    const episodesPayload = Array.isArray(req.body.episodes) ? req.body.episodes : [];
-    if (episodesPayload.length > 0) delete req.body.episodes;
+  const episodesPayload = Array.isArray(req.body.episodes) ? req.body.episodes : [];
+  // If admin UI sent an array of episodes, always remove it from req.body so
+  // it won't be assigned to Movie.episodes (which is a Number field on the
+  // Movie schema). The payload will be processed from episodesPayload.
+  if (Array.isArray(req.body.episodes)) delete req.body.episodes;
 
     // Update movie
     Object.assign(movie, req.body);
@@ -270,7 +273,7 @@ router.put('/movies/:id', validateMovie, checkValidation, async (req, res) => {
             }
 
             const season = epData.season ? Number(epData.season) : 1;
-            if (epData._id && !String(epData._id).startsWith('tmp-')) {
+              if (epData._id && !String(epData._id).startsWith('tmp-')) {
               // update by id if belongs to this movie
               const existing = await Episode.findById(epData._id);
               if (existing && String(existing.movieId) === String(movie._id)) {
@@ -280,7 +283,9 @@ router.put('/movies/:id', validateMovie, checkValidation, async (req, res) => {
                 existing.isPublished = epData.isPublished !== undefined ? !!epData.isPublished : existing.isPublished;
                 existing.title = epData.title || existing.title;
                 existing.thumbnailUrl = epData.thumbnailUrl || existing.thumbnailUrl;
-                existing.duration = epData.duration ? Number(epData.duration) : existing.duration;
+                  existing.duration = epData.duration ? Number(epData.duration) : existing.duration;
+                  // allow admin to set downloads on existing episodes
+                  if (epData.downloads !== undefined) existing.downloads = epData.downloads;
                 await existing.save();
                 continue;
               }
@@ -289,7 +294,7 @@ router.put('/movies/:id', validateMovie, checkValidation, async (req, res) => {
             // upsert by movieId+season+episodeNumber
             await Episode.findOneAndUpdate(
               { movieId: movie._id, season, episodeNumber },
-              { $set: { watchUrl, isPublished: epData.isPublished !== false, title: epData.title || undefined, thumbnailUrl: epData.thumbnailUrl || undefined, duration: epData.duration ? Number(epData.duration) : undefined } },
+              { $set: { watchUrl, isPublished: epData.isPublished !== false, title: epData.title || undefined, thumbnailUrl: epData.thumbnailUrl || undefined, duration: epData.duration ? Number(epData.duration) : undefined, downloads: epData.downloads || undefined } },
               { upsert: true, new: true, setDefaultsOnInsert: true }
             );
           } catch (err) {

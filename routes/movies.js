@@ -230,7 +230,7 @@ router.get('/:id', async (req, res) => {
     const movie = await Movie.findOne({ 
       _id: req.params.id, 
       isActive: true 
-    }).select('title originalTitle type year genre language description posterUrl trailerUrl backdropUrl rating duration seasons episodes clickCount isFeatured slug tags createdAt telegramLink').lean();
+    }).select('title originalTitle type year genre language description posterUrl trailerUrl backdropUrl rating duration seasons episodes clickCount isFeatured slug tags createdAt telegramLink downloads').lean();
 
     if (!movie) {
       return res.status(404).json({ error: 'Movie not found' });

@@ -39,6 +39,14 @@ const episodeSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Admin-provided download links for this episode. Shape mirrors Movie.downloads
+  // Keys are resolution strings mapping to arrays of { source, url }.
+  downloads: {
+    '240': [{ source: String, url: String }],
+    '360': [{ source: String, url: String }],
+    '720': [{ source: String, url: String }],
+    '1080': [{ source: String, url: String }]
+  },
   isPublished: {
     type: Boolean,
     default: true,
