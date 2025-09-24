@@ -13,7 +13,6 @@ const adminRoutes = require('./routes/admin');
 const clientRoutes = require('./routes/client');
 const analyticsRoutes = require('./routes/analytics');
 const episodesRoutes = require('./routes/episodes');
-const asianwikiRoutes = require('./routes/asianwiki');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -199,9 +198,6 @@ app.use('/api/analytics', moderateRateLimit, analyticsRoutes);
 app.use('/api/episodes', relaxedRateLimit, episodesRoutes);
 // Also expose episodes routes at /api so endpoints like /api/movies/:movieId/episodes work
 app.use('/api', relaxedRateLimit, episodesRoutes);
-
-// AsianWiki scraping proxy
-app.use('/api/asianwiki', relaxedRateLimit, asianwikiRoutes);
 
 // Health check with security info
 app.get('/api/health', (req, res) => {
