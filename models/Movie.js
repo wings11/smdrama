@@ -63,12 +63,12 @@ const movieSchema = new mongoose.Schema({
   // Admin-provided download links per resolution. Each key is a resolution
   // (as string) mapping to an array of links with optional source and url.
   // No URL validation is performed per project requirements.
-  downloads: {
-    '240': [{ source: String, url: String }],
-    '360': [{ source: String, url: String }],
-    '720': [{ source: String, url: String }],
-    '1080': [{ source: String, url: String }]
-  },
+    downloads: {
+      '360': [{ source: String, url: String }],
+      '480': [{ source: String, url: String }],
+      '720': [{ source: String, url: String }],
+      '1080': [{ source: String, url: String }],
+    },
   rating: {
     type: Number,
     min: 0,
