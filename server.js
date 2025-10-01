@@ -13,6 +13,7 @@ const adminRoutes = require('./routes/admin');
 const clientRoutes = require('./routes/client');
 const analyticsRoutes = require('./routes/analytics');
 const episodesRoutes = require('./routes/episodes');
+const commentsRoutes = require('./routes/comments');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -188,7 +189,9 @@ mongoose.connection.on('disconnected', () => {
   logger.warn('MongoDB disconnected');
 });
 
-// Routes with specific rate limiting
+
+// Comments route must be first to avoid being affected by any global /api middleware
+app.use('/api/comments', relaxedRateLimit, commentsRoutes);
 app.use('/api/auth/login', strictRateLimit);
 app.use('/api/auth', authRoutes);
 app.use('/api/movies', relaxedRateLimit, movieRoutes);
